@@ -8,6 +8,7 @@ class MyComponent extends Component {
         hello toy react
         <span> abcd</span>
         {this.children}
+        <div>{true}</div>
       </div>
     );
   }
