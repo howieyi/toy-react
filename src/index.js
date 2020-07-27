@@ -14,10 +14,10 @@ class MyComponent extends Component {
   }
 }
 
-let A = (
+const App = (
   <MyComponent name="a">
     <div>children</div>
   </MyComponent>
 );
 
-ToyReact.render(A, document.body);
+ToyReact.render(App, document.body);
