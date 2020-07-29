@@ -1,6 +1,10 @@
 ## toy-react
 
-> 实现简单版本的 react
+> 实现简单版本的 react，了解 react 基本原理
+>
+> 1. 支持 react jsx 语法；
+> 2. 实现 setState 节点更新；
+> 3. 添加生命周期钩子；
 
 ### 环境配置
 
@@ -16,10 +20,12 @@
 
 ```javascript
 module.exports = {
+  // 入口配置
   entry: {
     index: "./src/index.js",
   },
   devServer: {
+    // 动态监听目录
     contentBase: "./src/",
     compress: false,
     port: 9000,
@@ -50,9 +56,22 @@ module.exports = {
 };
 ```
 
+#### 命令配置
+
+> 1. package.json scripts 中加入启动命令；
+> 2. 使用 `npm run dev` 启动项目；
+
+```json
+{
+  "scripts": {
+    "dev": "webpack-dev-server --client-log-level silent --color"
+  }
+}
+```
+
 ### JSX 的原理和关键实现
 
-#### 实现目标
+#### 实现模板
 
 > 1. 实现 jsx 解析；
 > 2. 实现 jsx dom 节点解析；
@@ -85,7 +104,7 @@ const App = (
 ToyReact.render(App, document.body);
 ```
 
-#### 实现 ToyReact
+#### 实现 ToyReact 公共方法
 
 > 1. 实现 createElement 核心逻辑；
 > 2. 实现 render 钩子
@@ -146,7 +165,7 @@ export const ToyReact = {
 };
 ```
 
-#### ElementWrapper
+#### `ElementWrapper` 元素节点类
 
 > 公共元素类，实现元素节点处理逻辑：
 >
@@ -173,7 +192,7 @@ class ElementWrapper {
 }
 ```
 
-#### TextWrapper
+#### `TextWrapper` 文本节点类
 
 > 公共节点类，实现文本节点处理逻辑：
 >
@@ -192,7 +211,7 @@ class TextWrapper {
 }
 ```
 
-#### Component
+#### `Component` 公共继承类
 
 > 1. 实现构造函数，子组件收集，统一处理;
 > 2. 实现 setAttribute;
@@ -214,6 +233,284 @@ export class Component {
   mountTo(parent) {
     const vdom = this.render();
     vdom.mountTo(parent);
+  }
+}
+```
+
+### 添加生命周期
+
+#### 实现模板
+
+> 1. 支持 props;
+> 2. 支持 onClick 事件监听；
+> 3. 支持 setState;
+> 4. 生命周期钩子埋点；
+
+```javascript
+import { ToyReact, Component } from "./ToyReact";
+
+class Square extends Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      value: null,
+    };
+  }
+
+  componentWillMount() {
+    console.log("componentWillMount");
+  }
+
+  componentDidUpdate() {
+    console.log("componentDidUpdate");
+  }
+
+  componentWillReceiveProps(oldState, newState) {
+    console.log("componentWillReceiveProps", oldState, newState);
+  }
+
+  shouldComponentUpdate(oldState, newState) {
+    console.log("shouldComponentUpdate", oldState, newState);
+    return oldState.value !== newState.value;
+  }
+
+  render() {
+    return (
+      <button className="square" onClick={() => this.setState({ value: "X" })}>
+        {this.state.value || this.props.value}
+      </button>
+    );
+  }
+}
+
+class Board extends Component {
+  renderSquare(i) {
+    return <Square value={i} />;
+  }
+
+  render() {
+    return (
+      <div>
+        <div className="board-row">
+          {this.renderSquare(0)}
+          {this.renderSquare(1)}
+          {this.renderSquare(2)}
+        </div>
+        <div className="board-row">
+          {this.renderSquare(3)}
+          {this.renderSquare(4)}
+          {this.renderSquare(5)}
+        </div>
+        <div className="board-row">
+          {this.renderSquare(6)}
+          {this.renderSquare(7)}
+          {this.renderSquare(8)}
+        </div>
+      </div>
+    );
+  }
+}
+
+const App = <Board />;
+
+ToyReact.render(App, document.body);
+```
+
+#### 改造 `ToyReact.render`
+
+> 1. 增加 [Range](https://developer.mozilla.org/zh-CN/docs/Web/API/Range) 用来记录节点位置，方便处理更新；
+> 2. mountTo 统一使用 range
+
+```javascript
+export const ToyReact = {
+  createElement(type, attributes, ...children) {
+    // ...
+  },
+  // render 钩子
+  render(vdom, element) {
+    // range 记录节点位置
+    const range = document.createRange();
+
+    // 有子节点则追加
+    if (element.children.length) {
+      range.setStartAfter(element.lastChild);
+      range.setEndAfter(element.lastChild);
+    } else {
+      range.setStart(element, 0);
+      range.setEnd(element, 0);
+    }
+
+    vdom.mountTo(range);
+  },
+};
+```
+
+#### 改造 `ElementWrapper`
+
+> 1. appendChild 采用 range 处理；
+> 2. mountTo 采用 range 处理；
+> 3. 增加事件监听；
+
+```javascript
+class ElementWrapper {
+  constructor(type) {
+    this.root = document.createElement(type);
+  }
+  setAttribute(name, value) {
+    if (name.match(/^on([\s\S]+)$/)) {
+      // 事件监听处理
+      const evtName = RegExp.$1.toLowerCase();
+      this.root.addEventListener(evtName, value);
+    } else {
+      // className 处理
+      if (name === "className") name = "class";
+
+      this.root.setAttribute(name, value);
+    }
+  }
+  appendChild(vChild) {
+    const range = document.createRange();
+
+    if (this.root.children.length) {
+      // 如果有子元素，则添加在最后
+      range.setStartAfter(this.root.lastChild);
+      range.setEndAfter(this.root.lastChild);
+    } else {
+      range.setStart(this.root, 0);
+      range.setEnd(this.root, 0);
+    }
+
+    vChild.mountTo(range);
+  }
+  mountTo(range) {
+    // 先清除
+    range.deleteContents();
+    // 再插入
+    range.insertNode(this.root);
+  }
+}
+```
+
+#### 改造 `TextWrapper`
+
+> 1. mountTo 采用 range 处理
+
+```javascript
+class TextWrapper {
+  constructor(text) {
+    this.root = document.createTextNode(text);
+  }
+  mountTo(range) {
+    // 先清除
+    range.deleteContents();
+    // 再插入
+    range.insertNode(this.root);
+  }
+}
+```
+
+#### 改造 `Component` 公共类
+
+> 1. 引入 props;
+> 2. mountTo 使用 range;
+> 3. 增加 update 方法；
+> 4. 增加 setState 方法；
+> 5. 增加 生命周期钩子；
+> 6. 增加深拷贝公共方法；
+
+- 深拷贝
+
+```javascript
+// 深拷贝
+const merge = (oldState, newState) => {
+  for (let prop in newState) {
+    if (typeof newState[prop] === "object") {
+      if (typeof oldState[prop] !== "object") {
+        oldState[prop] = {};
+      }
+      merge(oldState[prop], newState[prop]);
+    } else {
+      oldState[prop] = newState[prop];
+    }
+  }
+};
+```
+
+- `Component` 公共类
+
+```javascript
+export class Component {
+  constructor() {
+    this.isMounted = false;
+    this.children = [];
+    this.props = Object.create(null);
+  }
+  // 用作生命周期钩子回调
+  _callLifeCircle(name, ...args) {
+    const cb = this[name];
+    if (typeof cb === "function") {
+      return cb.apply(this, args);
+    }
+  }
+  // 记录属性以及 props
+  setAttribute(name, value) {
+    this[name] = value;
+    this.props[name] = value;
+  }
+  mountTo(range) {
+    // componentWillMount
+    this._callLifeCircle("componentWillMount");
+
+    this.range = range;
+    this.update();
+
+    // 是否挂载过
+    this.isMounted = true;
+
+    // componentDidMount
+    this._callLifeCircle("componentDidMount");
+  }
+  update() {
+    // componentWillUpdate
+    // 挂载过则执行更新钩子
+    this.isMounted && this._callLifeCircle("componentWillUpdate");
+
+    // 更新之前当前位置先插入一个注释占位
+    const range = document.createRange();
+    range.setStart(this.range.endContainer, this.range.endOffset);
+    range.setEnd(this.range.endContainer, this.range.endOffset);
+    range.insertNode(document.createComment("placeholder"));
+
+    // 再清除当前节点
+    this.range.deleteContents();
+
+    const vdom = this.render();
+    // 最后 mount
+    vdom.mountTo(this.range);
+
+    // componentDidUpdate
+    this.isMounted && this._callLifeCircle("componentDidUpdate");
+  }
+  appendChild(vChild) {
+    this.children.push(vChild);
+  }
+  setState(state) {
+    // shouldComponentUpdate
+    // 更新之前检测是否中断更新
+    if (!this._callLifeCircle("shouldComponentUpdate", this.state, state)) {
+      return;
+    }
+
+    // componentWillReceiveProps
+    this._callLifeCircle("componentWillReceiveProps", this.state, state);
+
+    if (!this.state && state) this.state = {};
+
+    // 合并 state，这里使用深拷贝
+    merge(this.state, state);
+
+    // 更新
+    this.update();
   }
 }
 ```
