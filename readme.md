@@ -1,4 +1,4 @@
-## 简易 react 实现
+## 基于 jsx 实现简易 react
 
 > 实现简单版本的 react，帮助了解 react 基本原理
 >
@@ -6,6 +6,10 @@
 > 2. 实现 setState 节点更新；
 > 3. 添加生命周期钩子；
 > 4. 切换为虚拟 dom 进行操作；
+> 
+> [查看源码](https://github.com/howieyi/toy-react)：https://github.com/howieyi/toy-react
+
+> 这里也实现了简单版本 Vue，查看[基于 Proxy 实现了简易版 Vue](https://juejin.im/post/5ef74475e51d4534c36d79fa), [查看源码](https://github.com/howieyi/toy-vue)：https://github.com/howieyi/toy-vue
 
 ### 环境配置
 
