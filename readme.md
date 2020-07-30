@@ -5,6 +5,7 @@
 > 1. 支持 react jsx 语法；
 > 2. 实现 setState 节点更新；
 > 3. 添加生命周期钩子；
+> 4. 切换为虚拟 dom 进行操作；
 
 ### 环境配置
 
@@ -69,7 +70,7 @@ module.exports = {
 }
 ```
 
-### JSX 的原理和关键实现
+### 1. JSX 的原理和关键实现
 
 #### 实现模板
 
@@ -237,7 +238,7 @@ export class Component {
 }
 ```
 
-### 添加生命周期
+### 2. 添加生命周期
 
 #### 实现模板
 
@@ -418,7 +419,7 @@ class TextWrapper {
 > 5. 增加 生命周期钩子；
 > 6. 增加深拷贝公共方法；
 
-- 深拷贝
+##### 深拷贝
 
 ```javascript
 // 深拷贝
@@ -436,7 +437,7 @@ const merge = (oldState, newState) => {
 };
 ```
 
-- `Component` 公共类
+##### `Component` 公共类
 
 ```javascript
 export class Component {
@@ -512,5 +513,239 @@ export class Component {
     // 更新
     this.update();
   }
+}
+```
+
+### 3. 切换虚拟 dom
+
+#### 改造 `ElementWrapper`
+
+> 1. 引入 vdom，指向自己，以当前对象为 vdom；
+> 2. 改造 setAttribute/appendChild 为虚拟操作，缓存属性和子节点；
+> 3. 改造 mountTo，此方法处理真实 dom，即节点创建、属性、事件处理等；
+
+```javascript
+class ElementWrapper {
+  constructor(type) {
+    this.type = type;
+    this.children = [];
+    this.props = Object.create(null);
+  }
+  get vdom() {
+    return this;
+  }
+  get element() {
+    return this.root;
+  }
+  setAttribute(name, value) {
+    this.props[name] = value;
+  }
+  appendChild(vChild) {
+    this.children.push(vChild);
+  }
+  mountTo(range) {
+    // 先清除
+    range.deleteContents();
+
+    this.range = range;
+
+    const element = document.createElement(this.type);
+
+    for (let name in this.props) {
+      const value = this.props[name];
+
+      if (name.match(/^on([\s\S]+)$/)) {
+        // 事件监听处理
+        const evtName = RegExp.$1.toLowerCase();
+        element.addEventListener(evtName, value);
+      } else {
+        // className 处理
+        if (name === "className") name = "class";
+
+        element.setAttribute(name, value);
+      }
+    }
+
+    for (let child of this.children) {
+      const range = document.createRange();
+      if (element.children.length) {
+        // 如果有子元素，则添加在最后
+        range.setStartAfter(element.lastChild);
+        range.setEndAfter(element.lastChild);
+      } else {
+        range.setStart(element, 0);
+        range.setEnd(element, 0);
+      }
+      child.mountTo(range);
+    }
+
+    range.insertNode(element);
+  }
+}
+```
+
+#### 改造 `TextWrapper`
+
+> 1. 引入 vdom，指向自己，以当前对象为 vdom；
+> 2. mountTo 处理真实节点
+
+```javascript
+class TextWrapper {
+  constructor(text) {
+    this.type = "#text";
+    this.root = document.createTextNode(text);
+    this.children = [];
+    this.props = Object.create(null);
+  }
+  get vdom() {
+    return this;
+  }
+  mountTo(range) {
+    this.range = range;
+    // 先清除
+    range.deleteContents();
+    // 再插入
+    range.insertNode(this.root);
+  }
+}
+```
+
+#### 改造 `Component`
+
+> 1. 引入 `vdom: this.render().vdom`；
+> 2. 改造 `update`，这里做节点比较，合理更新节点；
+
+##### `isSameNode` 虚拟节点比较
+
+```javascript
+// same node 比较
+const isSameNode = (node1, node2) => {
+  if (!node1 || !node2) return false;
+
+  // 标签不一致
+  if (node1.type !== node2.type) {
+    return false;
+  }
+
+  // 属性长度不一致
+  if (Object.keys(node1.props).length !== Object.keys(node2.props).length)
+    return false;
+
+  // 属性有一个不一致
+  for (let name in node1.props) {
+    // 属性为方法时
+    if (
+      typeof node1.props[name] === "function" &&
+      typeof node2.props[name] === "function" &&
+      node1.props[name].toString() === node2.props[name].toString()
+    )
+      continue;
+
+    // 属性为对象时
+    if (
+      typeof node1.props[name] === "object" &&
+      typeof node2.props[name] === "object" &&
+      JSON.stringify(node1.props[name]) === JSON.stringify(node2.props[name])
+    )
+      continue;
+
+    // 属性名称不相等
+    if (node1.props[name] !== node2.props[name]) return false;
+  }
+
+  return true;
+};
+```
+
+##### `isSameTree` 虚拟节点树比较
+
+```javascript
+// same tree 比较
+const isSameTree = (node1, node2) => {
+  // 标签不一致
+  if (!isSameNode(node1, node2)) return false;
+
+  // 子节点长度不一致
+  if (node1.children.length !== node2.children.length) return false;
+
+  for (let i = 0; i < node1.children.length; i++) {
+    if (!isSameTree(node1.children[i], node2.children[i])) return false;
+  }
+
+  return true;
+};
+```
+
+##### `replaceNode` 虚拟节点替换
+
+```javascript
+let lastRange = null;
+// 替换节点
+const replaceNode = (newTree, oldTree) => {
+  // 当子节点比较时一方为空时，这时候需要补充节点
+  if (!oldTree && lastRange) {
+    lastRange.setStartAfter(lastRange.endContainer.lastChild);
+    lastRange.setEndAfter(lastRange.endContainer.lastChild);
+    newTree.mountTo(lastRange);
+    return;
+  }
+
+  if (isSameTree(newTree, oldTree)) return;
+
+  if (!isSameNode(newTree, oldTree)) {
+    newTree.mountTo(oldTree.range);
+  } else {
+    for (let i = 0; i < newTree.children.length; i++) {
+      // 记录当前子节点遍历的最后一次 range
+      lastRange = oldTree.children[i] ? oldTree.children[i].range : lastRange;
+      replaceNode(newTree.children[i], oldTree.children[i]);
+    }
+    // 清理标记
+    lastRange = null;
+  }
+};
+```
+
+##### `Component` 改动
+
+```javascript
+export class Component {
+  // ... 原来逻辑
+  get type() {
+    return this.constructor.name;
+  }
+  get vdom() {
+    return this.render().vdom;
+  }
+  // ... 原来逻辑
+  update() {
+    // componentWillUpdate
+    // 挂载过则执行更新钩子
+    this.isMounted && this._callLifeCircle("componentWillUpdate");
+
+    const vdom = this.render();
+
+    if (this.oldVDom) {
+      // 更新
+      if (isSameTree(vdom, this.oldVDom)) return;
+
+      if (!isSameNode(vdom, this.oldVDom)) {
+        // componentDidUnmount
+        this._callLifeCircle("componentDidUnmount");
+        vdom.mountTo(this.range);
+      } else {
+        replaceNode(vdom, this.oldVDom);
+      }
+    } else {
+      // 最后 mount
+      vdom.mountTo(this.range);
+    }
+
+    this.oldVDom = vdom;
+
+    // componentDidUpdate
+    this.isMounted && this._callLifeCircle("componentDidUpdate");
+  }
+  // ... 原来逻辑
 }
 ```
