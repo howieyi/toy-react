@@ -1,6 +1,6 @@
-## toy-react
+## 简易 react 实现
 
-> 实现简单版本的 react，了解 react 基本原理
+> 实现简单版本的 react，帮助了解 react 基本原理
 >
 > 1. 支持 react jsx 语法；
 > 2. 实现 setState 节点更新；
